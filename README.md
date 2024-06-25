@@ -1,6 +1,6 @@
 # wot_tactics_map
 
-This template should help get you started developing with Vue 3 in Vite.
+This project was created to help new players to learn the tactics of the world of tanks.
 
 ## Recommended IDE Setup
 
