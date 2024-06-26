@@ -8,36 +8,136 @@ export default class BoardCanvas {
    * @param {HTMLElement} container - The container element to append the canvas to.
    */
   constructor(container) {
-    // 采样倍率
-    this.magnification = 2
     /**  @type {HTMLElement} The container element to append the canvas to */
     this.container = container
-    /** @type {HTMLCanvasElement} The canvas element */
-    this.canvas = this.createCanvas(container)
-    // 绘制工具
-    this.ctx = this.canvas.getContext('2d')
-    // 起始点位置
-    this.startX = 0
-    this.stateY = 0
-    // 画布历史栈
+
+    /** @type {number} 采样倍率*/
+    this.magnification = 2
+
+    // // 起始点位置
+    // this.startX = 0
+    // this.stateY = 0
+
+    /** @type {image[]} 画布历史栈*/
     this.pathSegmentHistory = []
     this.index = 0
-    // 存储鼠标位置
+
+    /** @type {{x:number,y:number}[]} 鼠标位置*/
     this.points = []
-    // 存储当前路径
-    this.linePath
-    // 存储所有路径
+
+    /** @type {PathProperty} 当前路径的所有属性*/
+    this.pathProperty = new PathProperty()
+
+    /** @type {PathProperty[]} 当前分组里的所有所有路径 */
     this.paths = []
-    // 模式  pen => 绘图   eraser => 橡皮擦   choose => 选择
-    this.mode = 'pen'
-    // 二次贝塞尔曲线起点
+
+    /** @type {Map<string, PathProperty[]>} 所有路径分组*/
+    this.pathGroup = new Map()
+    this.num = 0
+
+    /** @type {string} 绘图模式 draw => 绘图   eraser => 橡皮擦   select => 选择*/
+    this.mode = 'draw'
+
+    /** @type {{x:number,y:number}[]} 二次贝塞尔曲线起点*/
     this.beginPoint
-    // 初始化
+
+    // 创建画板控件
+    this.createButtonList()
+
+    /** @type {HTMLCanvasElement} The canvas element */
+    this.canvas = this.createCanvas(container)
+
+    this.createPathGroupList()
+
+    /** @type {CanvasRenderingContext2D} 绘制工具*/
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })
+
+    // 初始化画板
     this.init()
+  }
+
+  createPathGroupList() {
+    const pathGroup = document.createElement('table')
+    pathGroup.id = 'pathGroupList'
+    pathGroup.setAttribute('style', 'display:flex;flex-direction:column;margin:0 0.625rem;table-layout:fixed;')
+    const title = document.createElement('tr')
+    title.textContent = '路径分组'
+    title.setAttribute('style', 'width:10rem;margin-bottom: 0.625rem')
+    pathGroup.appendChild(title)
+    pathGroup.appendChild(this.createPathGroupButton())
+    this.container.appendChild(pathGroup)
+  }
+
+  createPathGroupButton() {
+    const button = document.createElement('td')
+    button.textContent = '+'
+    button.onclick = () => {
+      this.num++
+      // 获取父元素
+      const pathGroupList = document.getElementById('pathGroupList')
+      // 添加新组
+      pathGroupList.appendChild(this.createPathGroup())
+      // 把按钮移动到最后
+      pathGroupList.appendChild(button)
+    }
+    return button
+  }
+
+  createPathGroup() {
+    let pathGroup = document.createElement('td')
+    pathGroup.id = 'group' + this.num
+    pathGroup.textContent = pathGroup.id
+    pathGroup.setAttribute(
+      'style',
+      'width:10rem;margin-bottom: 0.625rem;text-overflow: ellipsis;white-space: nowrap;overflow: hidden;'
+    )
+
+    let isEditing = false // 标记是否正在编辑
+
+    // 双击事件处理函数
+    const handleDoubleClick = () => {
+      let originalText = pathGroup.textContent // 保存原始文本
+      if (isEditing) return // 如果正在编辑,则不做任何操作
+
+      isEditing = true // 设置编辑状态为true
+
+      // 创建一个输入框,用于输入新名称
+      const input = document.createElement('input')
+      input.value = originalText // 设置输入框的初始值为原始文本
+      input.maxLength = 10 // 设置输入框的最大长度为20
+      input.setAttribute('style', 'width:6.25rem;height:1.5rem')
+      pathGroup.textContent = '' // 清空元素的文本内容
+      pathGroup.appendChild(input) // 将输入框添加到元素中
+
+      // 输入框获取焦点
+      input.focus()
+
+      // 监听输入框的blur事件(失去焦点)
+      input.addEventListener('blur', () => {
+        isEditing = false // 设置编辑状态为false
+        pathGroup.textContent = input.value // 将输入框的值设置为元素的文本内容
+        // pathGroup.removeChild(input) // 移除输入框
+      })
+
+      // 监听输入框的keydown事件(按下回车键)
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          isEditing = false // 设置编辑状态为false
+          pathGroup.textContent = input.value // 将输入框的值设置为元素的文本内容
+          // pathGroup.removeChild(input) // 移除输入框
+        }
+      })
+    }
+
+    // 为元素添加双击事件监听器
+    pathGroup.addEventListener('dblclick', handleDoubleClick)
+    return pathGroup
   }
 
   // 创建画布
   createCanvas(container) {
+    container.style.display = 'flex'
+    // 创建画板
     const canvas = document.createElement('canvas')
     // 超采样（以两倍的尺寸绘制，提高绘制精度，降低锯齿）
     canvas.width = container.clientWidth * this.magnification
@@ -48,6 +148,59 @@ export default class BoardCanvas {
     return canvas
   }
 
+  createButtonList() {
+    // 创建画板相关控件
+    const buttonList = document.createElement('div')
+    buttonList.style.display = 'flex'
+    buttonList.style.flexDirection = 'column'
+    this.container.appendChild(buttonList)
+    // 画笔
+    const draw = document.createElement('button')
+    draw.textContent = 'draw'
+    draw.style.margin = '0.625rem 0.625rem'
+    draw.onclick = () => {
+      this.mode = 'draw'
+      console.log(this.mode)
+    }
+    buttonList.appendChild(draw)
+    // 选择
+    const select = document.createElement('button')
+    select.textContent = 'select'
+    select.style.margin = '0.625rem 0.625rem'
+    select.onclick = () => {
+      this.mode = 'select'
+      console.log(this.mode)
+    }
+    buttonList.appendChild(select)
+    // 橡皮擦
+    const eraser = document.createElement('button')
+    eraser.textContent = 'eraser'
+    eraser.style.margin = '0.625rem 0.625rem'
+    eraser.onclick = () => {
+      this.mode = 'eraser'
+      console.log(this.mode)
+    }
+    buttonList.appendChild(eraser)
+
+    // 撤销
+    const undo = document.createElement('button')
+    undo.textContent = 'undo'
+    undo.style.margin = '0.625rem 0.625rem'
+    undo.onclick = () => {
+      this.undo()
+    }
+    buttonList.appendChild(undo)
+
+    // 恢复
+    const redo = document.createElement('button')
+    redo.textContent = 'redo'
+    redo.style.margin = '0.625rem 0.625rem'
+    redo.onclick = () => {
+      this.redo()
+    }
+    buttonList.appendChild(redo)
+  }
+
   // 初始化
   init() {
     this.addPathSegment()
@@ -56,17 +209,33 @@ export default class BoardCanvas {
     this.canvas.addEventListener('mousedown', this.mousedownEvent.bind(this))
     this.canvas.addEventListener('mousemove', this.mousemoveEvent.bind(this))
     this.canvas.addEventListener('mouseup', this.mouseupEvent.bind(this))
-    this.canvas.addEventListener('mouseout', this.mouseupEvent.bind(this))
+    // this.canvas.addEventListener('mouseout', this.mouseupEvent.bind(this))
     this.canvas.addEventListener('click', this.clickEvent.bind(this)) // 添加点击事件监听器
     window.document.addEventListener('keydown', this.keydownEvent.bind(this))
   }
 
   // 设置画笔样式
-  setContext2DStyle() {
-    this.ctx.strokeStyle = '#EB7347'
-    this.ctx.lineWidth = 2
-    this.ctx.lineCap = 'round'
-    this.ctx.lineJoin = 'round'
+  setContext2DStyle(mode) {
+    if (!mode || mode === 'draw') {
+      this.ctx.strokeStyle = 'red'
+      this.ctx.lineWidth = 10
+      this.ctx.lineCap = 'round'
+      this.ctx.lineJoin = 'round'
+      this.ctx.shadowBlur = null
+      this.ctx.shadowColor = null
+      this.ctx.shadowOffsetX = null
+      this.ctx.shadowOffsetY = null
+    }
+    if (mode === 'select') {
+      this.ctx.strokeStyle = 'green'
+      this.ctx.lineWidth = 10
+      this.ctx.lineCap = 'round'
+      this.ctx.lineJoin = 'round'
+      this.ctx.shadowBlur = 15
+      this.ctx.shadowColor = 'green'
+      this.ctx.shadowOffsetX = 0
+      this.ctx.shadowOffsetY = 0
+    }
   }
 
   /**
@@ -118,21 +287,39 @@ export default class BoardCanvas {
   //   }
   // }
 
+  /**
+   * 获取新的pathProperty对象
+   * @returns {{path2D: Path2D}}
+   */
+  getNewPathProperty() {
+    return {
+      path2D: new Path2D()
+    }
+  }
+
+  /**
+   * 鼠标按下事件
+   * @param {MouseEvent} e
+   */
   mousedownEvent(e) {
     // 绘图模式下
-    if (this.mode === 'pen') {
+    if (this.mode === 'draw') {
       const { x, y } = this.getPos(e)
       this.points.push(x, y)
       // 二次贝塞尔曲线起点
       this.beginPoint = { x, y }
-      this.mode = 'penStart'
-      this.linePath = new Path2D()
+      this.mode = 'drawStart'
+      this.pathProperty = this.getNewPathProperty()
     }
   }
 
+  /**
+   * 鼠标移动事件
+   * @param {MouseEvent} e
+   */
   mousemoveEvent(e) {
     // 绘图模式下
-    if (this.mode == 'penStart') {
+    if (this.mode == 'drawStart') {
       this.points.push(this.getPos(e))
       if (this.points.length >= 3) {
         const lastTwoPoints = this.points.slice(-2)
@@ -148,20 +335,36 @@ export default class BoardCanvas {
         // 更新起点
         this.beginPoint = endPoint
       }
+    } else if (this.mode === 'select') {
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+      console.log(this.paths.length)
+      for (let i = 0, len = this.paths.length; i < len; i++) {
+        let temp = this.getPos(e)
+        // 选中
+        if (this.ctx.isPointInStroke(this.paths[i].path2D, temp.x, temp.y) || this.paths[i].isTouched) {
+          this.setContext2DStyle('select')
+          this.ctx.stroke(this.paths[i].path2D)
+        }
+        // 未选中
+        else {
+          this.setContext2DStyle()
+          this.ctx.stroke(this.paths[i].path2D)
+        }
+      }
     }
   }
 
+  /**
+   * 鼠标抬起事件
+   */
   mouseupEvent() {
-    this.paths.push(this.linePath)
-    if (this.mode == 'penStart') {
+    if (this.mode == 'drawStart') {
+      this.paths.push(this.pathProperty)
       this.ctx.closePath()
-      this.mode = 'pen'
+      this.mode = 'draw'
+      // 保存历史
+      this.addPathSegment()
     }
-    // 保存历史
-    this.addPathSegment()
-    this.onmousemove = null
-    this.onmouseup = null
-    this.onmouseout = null
   }
 
   /**
@@ -169,12 +372,25 @@ export default class BoardCanvas {
    *
    * @returns
    */
-  clickEvent() {
-    // if (this.mode === 'pen') {
-    // for (let i = this.paths.length - 1; i >= 0; i--) {
-    //   this.drawLine(null, null, null, this.paths[i], 'green')
-    // }
-    // }
+  clickEvent(e) {
+    if (this.mode === 'select') {
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+      for (let i = this.paths.length - 1; i >= 0; i--) {
+        let temp = this.getPos(e)
+        if (this.ctx.isPointInStroke(this.paths[i].path2D, temp.x, temp.y)) {
+          this.paths[i].isTouched = !this.paths[i].isTouched
+        }
+        if (this.paths[i].isTouched) {
+          this.setContext2DStyle('select')
+          this.ctx.stroke(this.paths[i].path2D)
+        } else {
+          this.setContext2DStyle()
+          this.ctx.stroke(this.paths[i].path2D)
+        }
+      }
+      // 保存历史
+      this.addPathSegment()
+    }
   }
 
   /**
@@ -182,20 +398,14 @@ export default class BoardCanvas {
    * @param {{x,y}} beginPoint
    * @param {{x,y}} controlPoint
    * @param {{x,y}} endPoint
-   * @param {Path2D} path
-   * @param {String} color
-   * @returns {Path2D}
    */
-  drawLine(beginPoint, controlPoint, endPoint, path, color) {
+  drawLine(beginPoint, controlPoint, endPoint) {
     const ctx = this.ctx
-    ctx.strokeStyle = color
-    if (!path) {
-      this.linePath.moveTo(beginPoint.x, beginPoint.y)
-      this.linePath.quadraticCurveTo(controlPoint.x, controlPoint.y, endPoint.x, endPoint.y)
-    }
-    // ctx.fill(this.linePath)
-    ctx.stroke(this.linePath)
-    return path
+    this.setContext2DStyle()
+    this.pathProperty.path2D.moveTo(beginPoint.x, beginPoint.y)
+    this.pathProperty.path2D.quadraticCurveTo(controlPoint.x, controlPoint.y, endPoint.x, endPoint.y)
+    // ctx.fill(this.pathProperty.path2D)
+    ctx.stroke(this.pathProperty.path2D)
   }
 
   // 键盘事件
@@ -231,5 +441,12 @@ export default class BoardCanvas {
     if (this.index >= this.pathSegmentHistory.length - 1) return
     this.index++
     this.ctx.putImageData(this.pathSegmentHistory[this.index], 0, 0)
+  }
+}
+
+export class PathProperty {
+  constructor() {
+    this.path2D = new Path2D()
+    this.isTouched = false
   }
 }
