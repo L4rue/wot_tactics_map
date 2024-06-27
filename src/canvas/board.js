@@ -31,9 +31,11 @@ export default class BoardCanvas {
     /** @type {PathProperty[]} 当前分组里的所有所有路径 */
     this.paths = []
 
-    /** @type {Map<string, PathProperty[]>} 所有路径分组*/
-    this.pathGroup = new Map()
-    this.num = 0
+    /** @type {number} 路径分组数量*/
+    this.groupNum = 0
+
+    /** @type {number} 当前分组序号*/
+    this.groupNow = 0
 
     /** @type {string} 绘图模式 draw => 绘图   eraser => 橡皮擦   select => 选择*/
     this.mode = 'draw'
@@ -56,6 +58,7 @@ export default class BoardCanvas {
     this.init()
   }
 
+  // 创建分组列表
   createPathGroupList() {
     const pathGroup = document.createElement('table')
     pathGroup.id = 'pathGroupList'
@@ -66,13 +69,16 @@ export default class BoardCanvas {
     pathGroup.appendChild(title)
     pathGroup.appendChild(this.createPathGroupButton())
     this.container.appendChild(pathGroup)
+    document.getElementById('addPathGroup').click()
   }
 
+  // 创建分组的“+”按钮
   createPathGroupButton() {
     const button = document.createElement('td')
+    button.id = 'addPathGroup'
     button.textContent = '+'
     button.onclick = () => {
-      this.num++
+      this.groupNum++
       // 获取父元素
       const pathGroupList = document.getElementById('pathGroupList')
       // 添加新组
@@ -83,14 +89,16 @@ export default class BoardCanvas {
     return button
   }
 
+  // 创建新的分组
   createPathGroup() {
     let pathGroup = document.createElement('td')
-    pathGroup.id = 'group' + this.num
-    pathGroup.textContent = pathGroup.id
+    pathGroup.id = this.groupNum
+    pathGroup.textContent = 'group' + pathGroup.id
     pathGroup.setAttribute(
       'style',
       'width:10rem;margin-bottom: 0.625rem;text-overflow: ellipsis;white-space: nowrap;overflow: hidden;'
     )
+    this.groupNow = this.groupNum
 
     let isEditing = false // 标记是否正在编辑
 
@@ -121,7 +129,7 @@ export default class BoardCanvas {
 
       // 监听输入框的keydown事件(按下回车键)
       input.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') {
+        if (event.key == 'Enter') {
           isEditing = false // 设置编辑状态为false
           pathGroup.textContent = input.value // 将输入框的值设置为元素的文本内容
           // pathGroup.removeChild(input) // 移除输入框
@@ -130,7 +138,13 @@ export default class BoardCanvas {
     }
 
     // 为元素添加双击事件监听器
-    pathGroup.addEventListener('dblclick', handleDoubleClick)
+    pathGroup.ondblclick = handleDoubleClick
+    pathGroup.onclick = () => {
+      // 选中当前分组
+      this.groupNow = pathGroup.id
+      // 选中当前分组的所有路径
+      this.redrawPaths((i) => this.paths[i].groupId == pathGroup.id)
+    }
     return pathGroup
   }
 
@@ -216,7 +230,7 @@ export default class BoardCanvas {
 
   // 设置画笔样式
   setContext2DStyle(mode) {
-    if (!mode || mode === 'draw') {
+    if (!mode || mode == 'draw') {
       this.ctx.strokeStyle = 'red'
       this.ctx.lineWidth = 10
       this.ctx.lineCap = 'round'
@@ -226,7 +240,7 @@ export default class BoardCanvas {
       this.ctx.shadowOffsetX = null
       this.ctx.shadowOffsetY = null
     }
-    if (mode === 'select') {
+    if (mode == 'select') {
       this.ctx.strokeStyle = 'green'
       this.ctx.lineWidth = 10
       this.ctx.lineCap = 'round'
@@ -288,28 +302,18 @@ export default class BoardCanvas {
   // }
 
   /**
-   * 获取新的pathProperty对象
-   * @returns {{path2D: Path2D}}
-   */
-  getNewPathProperty() {
-    return {
-      path2D: new Path2D()
-    }
-  }
-
-  /**
    * 鼠标按下事件
    * @param {MouseEvent} e
    */
   mousedownEvent(e) {
     // 绘图模式下
-    if (this.mode === 'draw') {
+    if (this.mode == 'draw') {
       const { x, y } = this.getPos(e)
       this.points.push(x, y)
       // 二次贝塞尔曲线起点
       this.beginPoint = { x, y }
       this.mode = 'drawStart'
-      this.pathProperty = this.getNewPathProperty()
+      this.pathProperty = new PathProperty()
     }
   }
 
@@ -331,26 +335,14 @@ export default class BoardCanvas {
           y: (lastTwoPoints[0].y + lastTwoPoints[1].y) / 2
         }
         this.ctx.beginPath()
-        this.drawLine(this.beginPoint, controlPoint, endPoint, null, '#ff0000')
+        this.drawNewPath(this.beginPoint, controlPoint, endPoint)
         // 更新起点
         this.beginPoint = endPoint
       }
-    } else if (this.mode === 'select') {
+    } else if (this.mode == 'select') {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-      console.log(this.paths.length)
-      for (let i = 0, len = this.paths.length; i < len; i++) {
-        let temp = this.getPos(e)
-        // 选中
-        if (this.ctx.isPointInStroke(this.paths[i].path2D, temp.x, temp.y) || this.paths[i].isTouched) {
-          this.setContext2DStyle('select')
-          this.ctx.stroke(this.paths[i].path2D)
-        }
-        // 未选中
-        else {
-          this.setContext2DStyle()
-          this.ctx.stroke(this.paths[i].path2D)
-        }
-      }
+      let temp = this.getPos(e)
+      this.redrawPaths((i) => this.ctx.isPointInStroke(this.paths[i].path2D, temp.x, temp.y) || this.paths[i].isTouched)
     }
   }
 
@@ -373,7 +365,7 @@ export default class BoardCanvas {
    * @returns
    */
   clickEvent(e) {
-    if (this.mode === 'select') {
+    if (this.mode == 'select') {
       this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
       for (let i = this.paths.length - 1; i >= 0; i--) {
         let temp = this.getPos(e)
@@ -399,13 +391,35 @@ export default class BoardCanvas {
    * @param {{x,y}} controlPoint
    * @param {{x,y}} endPoint
    */
-  drawLine(beginPoint, controlPoint, endPoint) {
+  drawNewPath(beginPoint, controlPoint, endPoint) {
     const ctx = this.ctx
     this.setContext2DStyle()
     this.pathProperty.path2D.moveTo(beginPoint.x, beginPoint.y)
     this.pathProperty.path2D.quadraticCurveTo(controlPoint.x, controlPoint.y, endPoint.x, endPoint.y)
+    this.pathProperty.groupId = this.groupNow
     // ctx.fill(this.pathProperty.path2D)
     ctx.stroke(this.pathProperty.path2D)
+  }
+
+  /**
+   * 重绘满足条件的路径
+   *
+   * @param {function(number): boolean} fun 条件判断函数
+   */
+  redrawPaths(fun) {
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+    for (let i = 0; i < this.paths.length; i++) {
+      if (fun(i)) {
+        this.paths[i].isTouched = !this.paths[i].isTouched
+      }
+      if (this.paths[i].isTouched) {
+        this.setContext2DStyle('select')
+        this.ctx.stroke(this.paths[i].path2D)
+      } else {
+        this.setContext2DStyle()
+        this.ctx.stroke(this.paths[i].path2D)
+      }
+    }
   }
 
   // 键盘事件
@@ -444,9 +458,10 @@ export default class BoardCanvas {
   }
 }
 
-export class PathProperty {
+class PathProperty {
   constructor() {
     this.path2D = new Path2D()
     this.isTouched = false
+    this.groupId = null
   }
 }
